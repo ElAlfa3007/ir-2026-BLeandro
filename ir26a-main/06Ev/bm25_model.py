@@ -6,7 +6,6 @@ import pandas as pd
 
 
 def tokenize(text):
-    """Tokenize text into lowercase word tokens."""
     return re.findall(r"\w+", text.lower())
 
 
