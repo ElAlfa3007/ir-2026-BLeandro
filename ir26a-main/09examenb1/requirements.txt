@@ -1,0 +1,15 @@
+# Manipulación de datos
+pandas
+numpy
+
+# Descarga del dataset (Kaggle)
+kagglehub
+
+# Modelos y Machine Learning
+sentence-transformers
+scikit-learn
+
+# Visualización y entorno
+matplotlib
+ipython
+jupyter
