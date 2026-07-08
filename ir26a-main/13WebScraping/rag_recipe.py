@@ -18,11 +18,11 @@ try:
 except Exception:
     aiplatform = None
 
-DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
-def build_embeddings(texts, model_name=DEFAULT_EMBED_MODEL, batch_size=32):
+def build_embeddings(df_corpus, model_name=DEFAULT_EMBED_MODEL, batch_size=32):
     model = SentenceTransformer(model_name)
-    embeds = model.encode(texts, batch_size=batch_size, show_progress_bar=True, convert_to_numpy=True)
+    embeds = model.encode(df_corpus["text"].tolist(), batch_size=batch_size, show_progress_bar=True, convert_to_numpy=True)
     return embeds, model
 
 def save_index(df, embeddings, out_dir):
