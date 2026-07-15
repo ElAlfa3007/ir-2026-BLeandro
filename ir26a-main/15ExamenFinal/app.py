@@ -28,7 +28,7 @@ def cargar_sistema_rag():
 
     corpus = df['text_to_embed'].tolist()
     
-    retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
+    retriever_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     reranker_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
     
     corpus_embeddings = retriever_model.encode(corpus, convert_to_numpy=True)
