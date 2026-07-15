@@ -22,7 +22,10 @@ else:
 # 2. CACHÉ DE MODELOS Y DATOS (VITAL PARA STREAMLIT)
 @st.cache_resource(show_spinner="Cargando modelos e índice FAISS... (Esto toma un minuto en el primer arranque)")
 def cargar_sistema_rag():
-    df = pd.read_csv('arxiv_sample.csv')
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ruta_csv = os.path.join(BASE_DIR, 'arxiv_sample.csv')
+    df = pd.read_csv(ruta_csv)
+    
     corpus = df['text_to_embed'].tolist()
     
     retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
