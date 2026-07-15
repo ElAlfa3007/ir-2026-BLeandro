@@ -1,43 +1,51 @@
 import os
-from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import google.generativeai as genai
-import gradio as gr
+import streamlit as st
 
-# 1. CONFIGURACIÓN DE SEGURIDAD
-load_dotenv()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Configuración de la página
+st.set_page_config(page_title="RAG arXiv - Examen Final", page_icon="🧬")
+st.title(" Sistema RAG - arXiv (Examen Final)")
 
-# 2. INICIALIZACIÓN DE DATOS Y MODELOS
-print("Iniciando servidor RAG y cargando modelos...")
-df = pd.read_csv('arxiv_sample.csv').head(300)
-corpus = df['text_to_embed'].tolist()
+# 1. SEGURIDAD Y API KEY
+gemini_api_key = os.environ.get("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 
-retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
-reranker_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+if not gemini_api_key:
+    st.error("⚠️ Falta la API Key de Gemini. Configúrala en los Secrets de Streamlit.")
+    st.stop()
+else:
+    genai.configure(api_key=gemini_api_key)
 
-# Creación del índice FAISS
-corpus_embeddings = retriever_model.encode(corpus, convert_to_numpy=True)
-faiss.normalize_L2(corpus_embeddings)
-dimension = corpus_embeddings.shape[1]
-index = faiss.IndexFlatIP(dimension)
-index.add(corpus_embeddings)
+# 2. CACHÉ DE MODELOS Y DATOS (VITAL PARA STREAMLIT)
+@st.cache_resource(show_spinner="Cargando modelos e índice FAISS... (Esto toma un minuto en el primer arranque)")
+def cargar_sistema_rag():
+    df = pd.read_csv('arxiv_sample.csv')
+    corpus = df['text_to_embed'].tolist()
+    
+    retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
+    reranker_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    
+    corpus_embeddings = retriever_model.encode(corpus, convert_to_numpy=True)
+    faiss.normalize_L2(corpus_embeddings)
+    dimension = corpus_embeddings.shape[1]
+    index = faiss.IndexFlatIP(dimension)
+    index.add(corpus_embeddings)
+    
+    instrucciones = """Eres un asistente académico experto. Tu tarea es responder la pregunta utilizando ÚNICAMENTE los Contextos. 
+    Si la información no es suficiente, debes responder EXACTAMENTE: "El corpus no contiene información suficiente para responder a esta consulta."
+    No inventes información y siempre cita tus fuentes (ej. [Documento 1])."""
+    
+    modelo = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instrucciones)
+    
+    return df, corpus, retriever_model, reranker_model, index, modelo
 
-instrucciones_sistema = """Eres un asistente académico experto. Tu tarea es responder la pregunta del usuario utilizando ÚNICAMENTE los Contextos. 
-Si la información no es suficiente, debes responder EXACTAMENTE: "El corpus no contiene información suficiente para responder a esta consulta."
-No inventes información y siempre cita tus fuentes (ej. [Documento 1])."""
+# Ejecutamos la carga en caché
+df, corpus, retriever_model, reranker_model, index, modelo_generativo = cargar_sistema_rag()
 
-modelo_generativo = genai.GenerativeModel(
-    model_name="gemini-1.5-flash-latest",
-    system_instruction=instrucciones_sistema
-)
-
-# 3. FUNCIONES DEL PIPELINE RAG
+# 3. FUNCIONES CORE
 def recuperar_documentos(query, top_k_inicial=50, top_k_final=3):
     query_embedding = retriever_model.encode([query], convert_to_numpy=True)
     faiss.normalize_L2(query_embedding)
@@ -50,61 +58,61 @@ def recuperar_documentos(query, top_k_inicial=50, top_k_final=3):
     scores_rerank = reranker_model.predict(pares_evaluacion)
     
     resultados_ordenados = sorted(zip(candidatos_indices, scores_rerank), key=lambda x: x[1], reverse=True)
-    top_resultados = resultados_ordenados[:top_k_final]
     
-    documentos_recuperados = []
-    for idx, score in top_resultados:
-        documentos_recuperados.append({
+    docs = []
+    for idx, score in resultados_ordenados[:top_k_final]:
+        docs.append({
             "titulo": df.iloc[idx]['titles'],
             "abstract": df.iloc[idx]['summaries'],
             "score": float(score)
         })
-    return documentos_recuperados
+    return docs
 
-def generar_respuesta_rag(query, documentos_recuperados):
-    if not documentos_recuperados:
+def generar_respuesta(query, documentos):
+    if not documentos:
          return "El corpus no contiene información suficiente para responder a esta consulta."
     
-    texto_contextos = ""
-    for i, doc in enumerate(documentos_recuperados):
-        texto_contextos += f"--- Documento {i+1} ---\nTítulo: {doc['titulo']}\nResumen: {doc['abstract']}\n\n"
-        
-    prompt_usuario = f"Contextos:\n{texto_contextos}\n\nPregunta: {query}"
+    contextos = "".join([f"--- Documento {i+1} ---\nTítulo: {d['titulo']}\nResumen: {d['abstract']}\n\n" for i, d in enumerate(documentos)])
+    prompt = f"Contextos:\n{contextos}\n\nPregunta: {query}"
     
     try:
-        respuesta = modelo_generativo.generate_content(prompt_usuario, generation_config=genai.GenerationConfig(temperature=0.1))
-        return respuesta.text
+        resp = modelo_generativo.generate_content(prompt, generation_config=genai.GenerationConfig(temperature=0.1))
+        return resp.text
     except Exception as e:
-        return f"Error en la generación: {str(e)}"
+        return f"Error: {str(e)}"
 
-def funcion_interfaz_rag(mensaje, historial):
-    documentos = recuperar_documentos(mensaje)
-    respuesta_llm = generar_respuesta_rag(mensaje, documentos)
+# 4. INTERFAZ DE CHAT DE STREAMLIT
+if "mensajes" not in st.session_state:
+    st.session_state.mensajes = []
+
+# Mostrar historial
+for mensaje in st.session_state.mensajes:
+    with st.chat_message(mensaje["role"]):
+        st.markdown(mensaje["content"])
+
+# Entrada del usuario
+if prompt := st.chat_input("Escribe tu consulta (ej. What are the main applications of Graph Neural Networks?)"):
+    # Mostrar mensaje del usuario
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.mensajes.append({"role": "user", "content": prompt})
     
-    origen_evidencias = ""
-    if documentos and "El corpus no contiene información suficiente" not in respuesta_llm:
-        origen_evidencias += "\n\n---\n### Evidencias utilizadas para construir la respuesta:\n"
-        for i, doc in enumerate(documentos):
-            origen_evidencias += f"**[{i+1}] {doc['titulo']}** *(Score de relevancia: {doc['score']:.2f})*\n> {doc['abstract']}\n\n"
-    else:
-        origen_evidencias += "\n\n---\n### Evidencias:\n*Ninguna evidencia del corpus fue suficientemente relevante para esta consulta.*"
-    
-    return f"{respuesta_llm}{origen_evidencias}"
-
-# 4. INTERFAZ GRÁFICA
-demo = gr.ChatInterface(
-    fn=funcion_interfaz_rag,
-    title=" Sistema RAG - arXiv (Examen Final)",
-    description="Asistente conversacional para consultas sobre resúmenes de artículos científicos de arXiv utilizando búsquedas vectoriales y Gemini.",
-    examples=[
-        "What are the main applications of Graph Neural Networks?",
-        "How is reinforcement learning used in robotics?",
-        "Recent advances in diffusion models for image generation.",
-        "Techniques for improving retrieval-augmented generation systems."
-    ]
-)
-
-if __name__ == "__main__":
-    import os
-    puerto = int(os.environ.get("PORT", 7860))
-    demo.launch(server_name="0.0.0.0", server_port=puerto)
+    # Procesar respuesta
+    with st.chat_message("assistant"):
+        with st.spinner("Buscando en arXiv y generando respuesta..."):
+            docs = recuperar_documentos(prompt)
+            respuesta_llm = generar_respuesta(prompt, docs)
+            
+            # Construir evidencias
+            evidencias = ""
+            if docs and "El corpus no contiene información suficiente" not in respuesta_llm:
+                evidencias = "\n\n---\n### Evidencias utilizadas:\n"
+                for i, doc in enumerate(docs):
+                    evidencias += f"**[{i+1}] {doc['titulo']}** *(Score: {doc['score']:.2f})*\n> {doc['abstract']}\n\n"
+            else:
+                evidencias = "\n\n---\n### Evidencias:\n*Ninguna evidencia superó el umbral de relevancia.*"
+            
+            respuesta_final = f"{respuesta_llm}{evidencias}"
+            st.markdown(respuesta_final)
+            
+    st.session_state.mensajes.append({"role": "assistant", "content": respuesta_final})
