@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
 import faiss
@@ -7,7 +9,7 @@ import google.generativeai as genai
 import gradio as gr
 
 # 1. CONFIGURACIÓN DE SEGURIDAD
-# Hugging Face Spaces inyecta el secreto directamente en las variables de entorno
+load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
