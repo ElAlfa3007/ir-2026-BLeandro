@@ -25,7 +25,7 @@ def cargar_sistema_rag():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     ruta_csv = os.path.join(BASE_DIR, 'arxiv_sample.csv')
     df = pd.read_csv(ruta_csv)
-    
+
     corpus = df['text_to_embed'].tolist()
     
     retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -38,10 +38,10 @@ def cargar_sistema_rag():
     index.add(corpus_embeddings)
     
     instrucciones = """Eres un asistente académico experto. Tu tarea es responder la pregunta utilizando ÚNICAMENTE los Contextos. 
-    Si la información no es suficiente, debes responder EXACTAMENTE: "El corpus no contiene información suficiente para responder a esta consulta."
-    No inventes información y siempre cita tus fuentes (ej. [Documento 1])."""
+    Si la información no es suficiente, debes responder EXACTAMENTE: "El corpus no contiene información suficiente para responder a esta consulta.
+    Responde adecuadamente si a cada consulta con un: Se ha obtenido esta información de los artículos y de ser negativo: No se ha encontrado dentro del corpus, sin embargo esta es la aproximación más cercana. No inventes información y siempre cita tus fuentes (ej. [Documento 1]). Adicional si la consulta la hacen en cualquier otra idioma, tradúcela al inglés."""
     
-    modelo = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=instrucciones)
+    modelo = genai.GenerativeModel(model_name="gemini-2.5-flash", system_instruction=instrucciones)
     
     return df, corpus, retriever_model, reranker_model, index, modelo
 
