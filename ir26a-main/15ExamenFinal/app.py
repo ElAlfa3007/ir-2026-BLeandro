@@ -14,7 +14,7 @@ if GEMINI_API_KEY:
 
 # 2. INICIALIZACIÓN DE DATOS Y MODELOS
 print("Iniciando servidor RAG y cargando modelos...")
-df = pd.read_csv('arxiv_sample.csv')
+df = pd.read_csv('arxiv_sample.csv').head(300)
 corpus = df['text_to_embed'].tolist()
 
 retriever_model = SentenceTransformer('all-MiniLM-L6-v2')
